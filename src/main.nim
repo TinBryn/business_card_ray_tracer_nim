@@ -17,7 +17,7 @@ const text = [
 const
   width = 1920
   height = 1080
-  samples = 64
+  samples = 1024
   debugDepth = false
   debugRefraction = false
 
