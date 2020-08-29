@@ -1,4 +1,4 @@
-# An implementation on Andrew Kensler's "Business Card Ray Tracer" in translated into Nim
+# An implementation of Andrew Kensler's "Business Card Ray Tracer" translated into Nim
 
 ![NIM](https://user-images.githubusercontent.com/1669043/91628493-d1d55d00-e9f2-11ea-97bd-b0cc4e28e3ce.png)
 
@@ -20,5 +20,4 @@ Also I use a 2D array for the data and it now writes "NIM"
 I'm working on getting refraction working, it's currently very broken.
 
 ## References
-
 original: <http://eastfarthing.com/blog/2016-01-12-card/>
