@@ -1,5 +1,8 @@
 An implementation on Andrew Kensler's "Business Card Ray Tracer" in translated into Nim
 
+
+![NIM](https://user-images.githubusercontent.com/1669043/91628493-d1d55d00-e9f2-11ea-97bd-b0cc4e28e3ce.png)
+
 I haven't minified it so it doesn't fit on a business card, I have however made some improvements
 
 The original wrote directly to stdout and redirected stdout to a file in order to reduce code
