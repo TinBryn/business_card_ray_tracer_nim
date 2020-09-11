@@ -1,25 +1,23 @@
 import math
 import random
 import strformat
-import threadpool
-
-{.experimental: "parallel".}
+when compileOption("threads"):
+  import threadpool
+  {.experimental: "parallel".}
 
 const text = [
-  [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1],
-  [1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 1],
-  [1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 1],
-  [1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
-  [1, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1],
-  [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1]
+  [1u8, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1],
+  [1u8, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 1],
+  [1u8, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 1],
+  [1u8, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
+  [1u8, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1],
+  [1u8, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1]
 ]
 
 const
   width = 1920
   height = 1080
   samples = 1024
-  debugDepth = false
-  debugRefraction = false
 
 type
   Vec* = object
@@ -69,34 +67,15 @@ proc `!`*(v: Vec): Vec = v / sqrt(v%v)
 proc reflect*(v, n: Vec): Vec =
   v - n * (2 * n % v)
 
-proc schlick*(cosine, index: float32): float32 =
-  let r0 = (1-index) / (1+index)
-  let r1 = r0 * r0
-  r1 + (1-r1) * pow(1-cosine, 5)
-
-proc refract*(v, n: Vec, index: float32): tuple[reflected, refracted: Vec, ratio: float32] =
-  ##
-  let v = !v
-  let n = !n
-  result.reflected = reflect(v, n)
-  let dt = v % n
-  let discriminant = 1f32 - index*index * (1f32*dt*dt)
-  if discriminant > 0:
-    result.refracted = !(index * (v - n * dt) - n * sqrt(discriminant))
-    let cosine = (v % n) 
-    result.ratio = 1-schlick(cosine, index)
-  else:
-    result.ratio = 1f
-
 proc intersect(center: Vec, bestT: float32, origin, direction: Vec): tuple[t: float32, normal: Vec] =
   let offset = origin - center
   let b = offset % direction
-  let c = offset%offset - 1
+  let c = offset%offset - 1f32
   let discriminant = b * b - c
-  if discriminant > 0:
+  if discriminant > 0f32:
     let root = sqrt(discriminant)
     result.t = -b - root
-    if result.t > 0.01 and result.t < bestT:
+    if result.t > 0.01f32 and result.t < bestT:
       result.normal = !(offset + direction * result.t)
     else:
       result.t = bestT
@@ -150,10 +129,10 @@ proc shade*(gen: var Rand, origin, direction: Vec, depth = 8): Vec =
   
   if material == mFloor:
     let tile = int(ceil(hit.x / 5) + ceil(hit.y / 5)) and 1
-    if tile == 1:
-      return vec(3, 1, 1) * (diffuse / 5 + 0.1)
+    return (diffuse / 5 + 0.1) * (if tile == 1:
+      vec(3, 1, 1)
     else:
-      return vec(3, 3, 3) * (diffuse / 5 + 0.1)
+      vec(3, 3, 3))
 
 
   if material == mReflective:
@@ -162,42 +141,22 @@ proc shade*(gen: var Rand, origin, direction: Vec, depth = 8): Vec =
       let phong = pow( light % reflect * float32(diffuse > 0), 99)
       return shade(gen, hit, reflect, depth-1) * 0.5 + vec(phong, phong, phong)
     else:
-      when debugDepth:
-        return vec(3, 0, 3)
-      else:
-        return vec(0, 0, 0)
-
-  if material == mRefractive:
-    if depth > 0:
-      let (reflect, refract, ratio) = refract(direction, normal, 1.4)
-      let phong = pow( light % reflect * float32(diffuse > 0), 99)
-      if uniform(gen) < ratio:
-        when debugRefraction:
-          return vec(3,0,3)
-        else:
-          return shade(gen, hit, refract, depth-1) * 0.5
-      else:
-        when debugRefraction:
-          return vec(0,3,0)
-        else:
-          return shade(gen, hit, reflect, depth-1) * 0.5 + vec(phong, phong, phong)
-    else:
-      return vec(0, 0, 0) 
+      return vec(0, 0, 0)
 
 proc clamp(f: var float32) =
   if f < 0: f = 0
   if f > 255: f = 255
 
-proc renderLine(image: var Image, y: int) =
-  # camera vectors
-  const
-    eye = vec(18, 19, 10)
-    gaze = !(vec(11, 0, 8) - eye)
-    fov = max(width, height)
-    right = !(gaze ^ vec(0, 0, 1)) / fov
-    down = !(gaze ^ right) / fov
-    corner = gaze - (right * width + down * height) / 2
+# camera vectors
+const
+  eye = vec(18, 19, 10)
+  gaze = !(vec(11, 0, 8) - eye)
+  fov = max(width, height)
+  right = !(gaze ^ vec(0, 0, 1)) / fov
+  down = !(gaze ^ right) / fov
+  corner = gaze - (right * width + down * height) / 2
 
+proc renderLine(image: var Image, y: int) =
   var gen = initRand(y * width + 1)
   for x in 0..<width:
     var color = vec(0, 0, 0)
@@ -216,21 +175,24 @@ proc renderLine(image: var Image, y: int) =
     image[x, y, 2] = color.z.round.toInt.chr
   echo &"line {y+1} done"
 
-proc main =
-  var image = initImage(width, height)
+when isMainModule:
+  import ../util/files
+  proc main =
+    var image = initImage(width, height)
 
-  parallel:
-    for y in 0..<height:
-      spawn renderLine(image, y)  
-  var file: File
-  if file.open("NIM.ppm", fmWrite):
-    try:
+    when compileOption("threads"):
+      parallel:
+        for y in 0..<height:
+          spawn renderLine(image, y)
+    else:
+      for y in 0..<height:
+        renderLine(image, y)
+
+    withFile(file, "NIM.ppm", fmWrite):
       file.write &"P6 {width} {height} 255 "
 
       for y in 0 ..< height:
         for x in 0 ..< width:
           file.write &"{image[x, y, 0]}{image[x, y, 1]}{image[x, y, 2]}"
-    finally:
-      file.close()
 
-main()
+  main()
