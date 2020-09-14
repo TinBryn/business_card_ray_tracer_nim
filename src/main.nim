@@ -18,6 +18,8 @@ const
   width = 1920
   height = 1080
   samples = 1024
+  tileWidth = 32
+  tileHeight = 32
 
 type
   Vec* = object
@@ -35,7 +37,6 @@ proc initImage*(width, height: int): Image =
 
 proc `[]`*(image: Image, x, y, c: int): char =
   image.data[(x + image.width * y) * 3 + c]
-  
 
 proc `[]=`*(image: var Image, x, y, c: int, data: char) =
   image.data[(x + image.width * y) * 3 + c] = data
@@ -156,24 +157,33 @@ const
   down = !(gaze ^ right) / fov
   corner = gaze - (right * width + down * height) / 2
 
-proc renderLine(image: var Image, y: int) =
+proc renderPixel(image: var Image, x, y: int, gen: var Rand) = 
+  var color = vec(0, 0, 0)
+  for sample in 0 ..< samples:
+    let lens = (right * (uniform(gen) - 0.5) +
+                 down * (uniform(gen) - 0.5) ) * 99
+    let direction = corner + right * (x.float32 + uniform(gen)) +
+                              down * (y.float32 + uniform(gen))
+    color = color + shade(gen, eye + lens, !(direction * 16 - lens)) * 224 / samples
+  clamp color.x
+  clamp color.y
+  clamp color.z
+  image[x, y, 0] = color.x.round.toInt.chr
+  image[x, y, 1] = color.y.round.toInt.chr
+  image[x, y, 2] = color.z.round.toInt.chr
+
+proc renderLine(image: var Image, y: int) {.used.} =
   var gen = initRand(y * width + 1)
   for x in 0..<width:
-    var color = vec(0, 0, 0)
-    for sample in 0 ..< samples:
-      let lens = ( right * (uniform(gen) - 0.5) +
-                    down * (uniform(gen) - 0.5) ) * 99
-      let direction = corner + right * (x.float32 + uniform(gen)) +
-                                down * (y.float32 + uniform(gen)) 
-      color = color + shade(gen, eye + lens, !(direction * 16 - lens)) * 224 / samples
-    
-    clamp color.x
-    clamp color.y
-    clamp color.z
-    image[x, y, 0] = color.x.round.toInt.chr
-    image[x, y, 1] = color.y.round.toInt.chr
-    image[x, y, 2] = color.z.round.toInt.chr
+    renderPixel(image, x, y, gen)
   echo &"line {y+1} done"
+
+proc renderTile(image: var Image, sx, sy, fx, fy: int) {.used.} =
+  var gen = initRand(sx + width * sy + 1)
+  for x in sx ..< min(sx + fx, width):
+    for y in sy ..< min(sy + fy, height):
+      renderPixel(image, x, y, gen)
+  echo &"tile ({sx}, {sy}) done"
 
 when isMainModule:
   import ../util/files
@@ -182,17 +192,21 @@ when isMainModule:
 
     when compileOption("threads"):
       parallel:
-        for y in 0..<height:
-          spawn renderLine(image, y)
+        for x in countup(0, width-1, tileWidth):
+          for y in countup(0, height-1, tileHeight):
+            spawn renderTile(image, x, y, tileWidth, tileHeight)
     else:
-      for y in 0..<height:
-        renderLine(image, y)
+      for x in countup(0, width-1, tileWidth):
+        for y in countup(0, height-1, tileHeight):
+          renderTile(image, x, y, tileWidth, tileHeight)
+
+    echo "done rendering"
 
     withFile(file, "NIM.ppm", fmWrite):
       file.write &"P6 {width} {height} 255 "
 
-      for y in 0 ..< height:
-        for x in 0 ..< width:
-          file.write &"{image[x, y, 0]}{image[x, y, 1]}{image[x, y, 2]}"
+
+      if writeBuffer(file, addr image.data[0], image.data.len) != image.data.len:
+        raise ValueError.newException "unable to write image"
 
   main()
